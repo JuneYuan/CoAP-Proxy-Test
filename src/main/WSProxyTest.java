@@ -78,28 +78,28 @@ public class WSProxyTest {
         private int succ = 0;
 
         private long start, end;
-        private boolean finished = false;
+        private Boolean finished = null;
 
         Task() throws URISyntaxException {
             wsc = new WebSocketClient(new URI(wsuri)) {
                 @Override
                 public void onMessage(String message) {
-                    LOGGER.info(">> (收到代理的文本消息)\n" + message + "\n");
+                    //LOGGER.info(">> (收到代理的文本消息)\n" + message + "\n");
                 }
 
                 @Override
                 public void onMessage(ByteBuffer bytes) {
-                    DataParser dp = new DataParser(bytes.array());
+/*                    DataParser dp = new DataParser(bytes.array());
                     Response response = dp.parseResponse();
-                    LOGGER.info(">> (收到代理的二进制消息)\n" + bytes + "\n" + response.toString());
+                    LOGGER.info(">> (收到代理的二进制消息)\n" + bytes + "\n" + response.toString());*/
                     succ++;
 
-                    while (System.currentTimeMillis() < end) {
+                    if (System.currentTimeMillis() < end) {
                         wsc.send(getBinaryCoapRequest());
                         total++;
-                    }
-
-                    finished = true;
+                        finished = false;
+                    } else
+                        finished = true;
                 }
 
                 @Override
@@ -107,6 +107,7 @@ public class WSProxyTest {
                     LOGGER.info("状态：与代理的 WebSocket 连接已建立 ：）\n");
 
                     wsc.send(getBinaryCoapRequest());
+                    total++;
                 }
 
                 @Override
@@ -127,7 +128,13 @@ public class WSProxyTest {
             start = System.currentTimeMillis();
             end = start + totalTime;
 
-            while (!finished)   ;
+            while (finished == null) {
+                if (System.currentTimeMillis() < end)
+                    continue;
+                else break;
+            }
+
+            while (finished == false)   ;
 
             wsc.close();
             return new Pair(total, succ);
