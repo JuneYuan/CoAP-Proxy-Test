@@ -9,6 +9,9 @@ import org.java_websocket.WebSocket;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -32,10 +35,10 @@ public class WSProxyTest {
     public static void main(String[] args) throws Exception {
         long time1 = System.currentTimeMillis();
 
-        out = new PrintWriter(OUT_PATH, "UTF-8");
+        out = new PrintWriter(new BufferedWriter(new FileWriter(OUT_PATH, true)));
 
         // 模拟不同并发量
-        int[] ccl = {1};
+        int[] ccl = {100};
         //int[] ccl = {10, 20, 30, 50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000};
         for (int concurrencyLevel : ccl) {
             ExecutorService executor = Executors.newFixedThreadPool(concurrencyLevel);
@@ -44,8 +47,9 @@ public class WSProxyTest {
             int succReq = 0;
 
             // 每个单独的线程：放进线程池，并将返回值添加到结果集
-            Callable<Pair> callable = new Task();
+            Callable<Pair> callable;
             for (int i  = 0; i < concurrencyLevel; i++) {
+                callable = new Task(1000000*i);
                 Future<Pair> future = executor.submit(callable);
                 list.add(future);
             }
@@ -72,6 +76,7 @@ public class WSProxyTest {
 
 
     private static class Task implements Callable<Pair> {
+        private int tokenBase;
         private WebSocketClient wsc;
         private final int totalTime = 1000*10;
         private int total = 0;
@@ -80,7 +85,9 @@ public class WSProxyTest {
         private long start, end;
         private Boolean finished = null;
 
-        Task() throws URISyntaxException {
+        Task(int tokenBase) throws URISyntaxException {
+            this.tokenBase = tokenBase;
+
             wsc = new WebSocketClient(new URI(wsuri)) {
                 @Override
                 public void onMessage(String message) {
@@ -128,13 +135,15 @@ public class WSProxyTest {
             start = System.currentTimeMillis();
             end = start + totalTime;
 
-            while (finished == null) {
+            while (System.currentTimeMillis() < end)     ;
+
+/*            while (finished == null) {
                 if (System.currentTimeMillis() < end)
                     continue;
                 else break;
             }
 
-            while (finished == false)   ;
+            while (finished == false)   ;*/
 
             wsc.close();
             return new Pair(total, succ);
@@ -143,8 +152,10 @@ public class WSProxyTest {
         // 生成一个coap二进制消息
         private byte[] getBinaryCoapRequest() {
             Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
+            //Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
             req.setURI(coapuri);
-            int counter = new Random().nextInt();
+            int counter = tokenBase++;
+            //int counter = new Random().nextInt();
             int token = counter++;
             req.setToken(new byte[] { (byte) (token >>> 24), (byte) (token >>> 16), (byte) (token >>> 8), (byte) token });
             counter = new Random().nextInt();
