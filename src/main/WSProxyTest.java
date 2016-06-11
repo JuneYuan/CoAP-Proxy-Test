@@ -49,7 +49,7 @@ public class WSProxyTest {
             // 每个单独的线程：放进线程池，并将返回值添加到结果集
             Callable<Pair> callable;
             for (int i  = 0; i < concurrencyLevel; i++) {
-                callable = new Task(1000000*i, 65535/concurrencyLevel*i);
+                callable = new Task();
                 Future<Pair> future = executor.submit(callable);
                 list.add(future);
             }
@@ -76,7 +76,6 @@ public class WSProxyTest {
 
 
     private static class Task implements Callable<Pair> {
-        private int tokenBase, midBase;
         private WebSocketClient wsc;
         private final int totalTime = 1000*10;
         private int total = 0;
@@ -85,9 +84,7 @@ public class WSProxyTest {
         private long start, end;
         private Boolean finished = null;
 
-        Task(int tokenBase, int midBase) throws URISyntaxException {
-            this.tokenBase = tokenBase;
-            this.midBase = midBase;
+        Task() throws URISyntaxException {
 
             wsc = new WebSocketClient(new URI(wsuri)) {
                 @Override
@@ -153,12 +150,10 @@ public class WSProxyTest {
         // 生成一个coap二进制消息
         private byte[] getBinaryCoapRequest() {
             Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
-            //Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
             req.setURI(coapuri);
-            int token = tokenBase++;
+            int counter = new Random().nextInt();
+            int token = counter, mid = counter; // 这里保证了：两条消息MID相同时，Token一定也相同
             req.setToken(new byte[] { (byte) (token >>> 24), (byte) (token >>> 16), (byte) (token >>> 8), (byte) token });
-            int mid = midBase++;
-            //int mid = Math.abs(midBase % (1 << 16));
             req.setMID(mid);
 
             DataSerializer ds = new DataSerializer();
