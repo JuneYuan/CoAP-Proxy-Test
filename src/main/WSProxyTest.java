@@ -7,6 +7,7 @@ import org.eclipse.californium.core.network.serialization.DataParser;
 import org.eclipse.californium.core.network.serialization.DataSerializer;
 import org.java_websocket.WebSocket;
 import org.java_websocket.client.WebSocketClient;
+import org.java_websocket.exceptions.WebsocketNotConnectedException;
 import org.java_websocket.handshake.ServerHandshake;
 
 import java.io.BufferedOutputStream;
@@ -28,8 +29,9 @@ import java.util.logging.Logger;
 public class WSProxyTest {
     private final static Logger LOGGER = Logger.getLogger(WSProxyTest.class.getCanonicalName());
     private static final String OUT_PATH = "/Users/SmartJune/Desktop/wsproxy.txt";
-    private static final String wsuri = "ws://10.103.240.159:8887";
-    private static final String coapuri = "coap://10.103.240.159:5683/target";
+    private static final String wsuri = "ws://localhost:8887";
+    private static final String coapuri = "coap://localhost:5683/target";
+    private static final byte[] request = getBinaryCoapRequest();
     private static PrintWriter out;
 
     public static void main(String[] args) throws Exception {
@@ -38,7 +40,7 @@ public class WSProxyTest {
         out = new PrintWriter(new BufferedWriter(new FileWriter(OUT_PATH, true)));
 
         // 模拟不同并发量
-        int[] ccl = {100};
+        int[] ccl = {10};
         //int[] ccl = {10, 20, 30, 50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000};
         for (int concurrencyLevel : ccl) {
             ExecutorService executor = Executors.newFixedThreadPool(concurrencyLevel);
@@ -47,9 +49,8 @@ public class WSProxyTest {
             int succReq = 0;
 
             // 每个单独的线程：放进线程池，并将返回值添加到结果集
-            Callable<Pair> callable;
+            Callable<Pair> callable = new Task();
             for (int i  = 0; i < concurrencyLevel; i++) {
-                callable = new Task();
                 Future<Pair> future = executor.submit(callable);
                 list.add(future);
             }
@@ -82,36 +83,43 @@ public class WSProxyTest {
         private int succ = 0;
 
         private long start, end;
-        private Boolean finished = null;
 
         Task() throws URISyntaxException {
 
             wsc = new WebSocketClient(new URI(wsuri)) {
+
+                private void helper() {
+                    succ++;
+
+                    try {
+                        wsc.send(request);
+                        total++;
+                    } catch (WebsocketNotConnectedException e) {
+                        //LOGGER.info("连接已断开");
+                        return;
+                    }
+
+                }
+
                 @Override
                 public void onMessage(String message) {
                     //LOGGER.info(">> (收到代理的文本消息)\n" + message + "\n");
+
+                    helper();
                 }
 
                 @Override
                 public void onMessage(ByteBuffer bytes) {
-/*                    DataParser dp = new DataParser(bytes.array());
-                    Response response = dp.parseResponse();
-                    LOGGER.info(">> (收到代理的二进制消息)\n" + bytes + "\n" + response.toString());*/
-                    succ++;
+                    //LOGGER.info(">> (收到代理的coap响应消息)\n" + bytes + "\n");
 
-                    if (System.currentTimeMillis() < end) {
-                        wsc.send(getBinaryCoapRequest());
-                        total++;
-                        finished = false;
-                    } else
-                        finished = true;
+                    helper();
                 }
 
                 @Override
                 public void onOpen(ServerHandshake handshake) {
-                    LOGGER.info("状态：与代理的 WebSocket 连接已建立 ：）\n");
+                    //LOGGER.info("状态：与代理的 WebSocket 连接已建立 ：）\n");
 
-                    wsc.send(getBinaryCoapRequest());
+                    wsc.send(request);
                     total++;
                 }
 
@@ -130,37 +138,15 @@ public class WSProxyTest {
         }
 
         public Pair call() {
+            while (wsc.getReadyState() != WebSocket.READYSTATE.OPEN)    ;
+
             start = System.currentTimeMillis();
             end = start + totalTime;
-
             while (System.currentTimeMillis() < end)     ;
-
-/*            while (finished == null) {
-                if (System.currentTimeMillis() < end)
-                    continue;
-                else break;
-            }
-
-            while (finished == false)   ;*/
 
             wsc.close();
             return new Pair(total, succ);
         }
-
-        // 生成一个coap二进制消息
-        private byte[] getBinaryCoapRequest() {
-            Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
-            req.setURI(coapuri);
-            int counter = new Random().nextInt();
-            int token = counter, mid = counter; // 这里保证了：两条消息MID相同时，Token一定也相同
-            req.setToken(new byte[] { (byte) (token >>> 24), (byte) (token >>> 16), (byte) (token >>> 8), (byte) token });
-            req.setMID(mid);
-
-            DataSerializer ds = new DataSerializer();
-            return ds.serializeRequest(req);
-        }
-
-
 
     }
 
@@ -172,4 +158,18 @@ public class WSProxyTest {
         }
     }
 
+    // 生成一个coap二进制消息
+    private static byte[] getBinaryCoapRequest() {
+        Request req = new Request(CoAP.Code.GET, org.eclipse.californium.core.coap.CoAP.Type.CON);
+        req.setURI(coapuri);
+        // 这里保证了：两条消息MID相同时，Token一定也相同
+        int counter = Math.abs(new Random().nextInt() % (1 << 16));
+        int token = counter;
+        int mid = counter;
+        req.setToken(new byte[] { (byte) (token >>> 24), (byte) (token >>> 16), (byte) (token >>> 8), (byte) token });
+        req.setMID(mid);
+
+        DataSerializer ds = new DataSerializer();
+        return ds.serializeRequest(req);
+    }
 }
